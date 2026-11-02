@@ -12,12 +12,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # --- API & Telegram Configurations ---
 # तुमच्या क्रेडेन्शियल्सनुसार येथे माहिती भरा किंवा Environment Variables वापरा
-API_KEY = os.getenv("SMARTAPI_KEY", "YOUR_ANGEL_ONE_API_KEY")
-CLIENT_ID = os.getenv("CLIENT_ID", "YOUR_CLIENT_ID")
-PASSWORD = os.getenv("PASSWORD", "YOUR_PIN_OR_PASSWORD")
+API_KEY = os.getenv("SMARTAPI_KEY", "iemEXsyV")
+CLIENT_ID = os.getenv("CLIENT_ID", "B253694")
+PASSWORD = os.getenv("PASSWORD", "7172")
+TOTP_SECRET = "D4YNATHBA3VFIW5C7YUQPJNVIE"
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "YOUR_TELEGRAM_CHAT_ID")
+TELEGRAM_BOT_TOKEN = "9026439091:AAFIKpcddjPnFfx-k-Wc8GUSSdHvgOd0w5k"
+TELEGRAM_CHAT_ID = "1486399523"
 
 # --- Telegram Alert Function ---
 def send_telegram_alert(message):
