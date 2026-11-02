@@ -1,6 +1,7 @@
 import os
 import time
 import logging
+import pyotp
 import pandas as pd
 import numpy as np
 import requests
@@ -11,10 +12,9 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- API & Telegram Configurations ---
-# तुमच्या क्रेडेन्शियल्सनुसार येथे माहिती भरा किंवा Environment Variables वापरा
-API_KEY = os.getenv("SMARTAPI_KEY", "iemEXsyV")
-CLIENT_ID = os.getenv("CLIENT_ID", "B253694")
-PASSWORD = os.getenv("PASSWORD", "7172")
+API_KEY = "iemEXsyV"
+CLIENT_ID = "B253694"
+PASSWORD = "7172"
 TOTP_SECRET = "D4YNATHBA3VFIW5C7YUQPJNVIE"
 
 TELEGRAM_BOT_TOKEN = "9026439091:AAFIKpcddjPnFfx-k-Wc8GUSSdHvgOd0w5k"
@@ -31,30 +31,27 @@ def send_telegram_alert(message):
         }
         response = requests.post(url, json=payload)
         if response.status_code != 200:
-            logging.error(f"Telegram Error: {response.text}")
+            logging.error("Telegram Error: " + response.text)
     except Exception as e:
-        logging.error(f"Failed to send Telegram alert: {e}")
+        logging.error("Failed to send Telegram alert: " + str(e))
 
-# --- Indicator Calculations ---
+# --- Indicator Calculations (MA 60 & RSI Stochastic 75/35) ---
 def calculate_indicators(df):
-    # 1. Moving Average 60
     df['MA_60'] = df['close'].rolling(window=60).mean()
     
-    # 2. RSI Stochastic (75/35) Calculation
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
     
-    # Stochastic of RSI (14 period)
     r_low = rsi.rolling(window=14).min()
     r_high = rsi.rolling(window=14).max()
     df['Stoch_RSI'] = (rsi - r_low) / (r_high - r_low) * 100
     
     return df
 
-# --- Strategy Logic ---
+# --- Strategy Logic (Only Options: CE BUY / PE BUY) ---
 def check_strategy_signals(df, symbol):
     if len(df) < 65:
         return None
@@ -73,35 +70,29 @@ def check_strategy_signals(df, symbol):
     sl = 0
     target = 0
     
-    # --- CE BUY / FUTURE BUY CONDITIONS ---
-    # Condition 1: MA 60 Crossover from below + Stoch crossing 35 from below
     if prev_close <= prev['MA_60'] and close > ma_60 and prev_stoch <= 35 and stoch > 35:
-        signal = "CE_BUY"
+        signal = "ATM CE BUY"
         sl = prev['low']
         risk = entry_price - sl
-        target = entry_price + risk  # 1:1 Target
+        target = entry_price + risk
         
-    # Condition 2: Support at MA 60 (Green candle taking support) + Stoch taking support near 35
     elif close > ma_60 and prev['low'] <= prev['MA_60'] and close > prev_close and stoch > prev_stoch and stoch <= 45:
-        signal = "CE_BUY"
+        signal = "ATM CE BUY (Support)"
         sl = prev['low']
         risk = entry_price - sl
-        target = entry_price + risk  # 1:1 Target
+        target = entry_price + risk
 
-    # --- PE BUY / FUTURE SELL CONDITIONS ---
-    # Condition 3: MA 60 Breakdown from above + Stoch crossing 75 from above
     elif prev_close >= prev['MA_60'] and close < ma_60 and prev_stoch >= 75 and stoch < 75:
-        signal = "PE_BUY"
+        signal = "ATM PE BUY"
         sl = prev['high']
         risk = sl - entry_price
-        target = entry_price - risk  # 1:1 Target
+        target = entry_price - risk
         
-    # Condition 4: Resistance at MA 60 (Red candle taking resistance) + Stoch taking resistance near 75
     elif close < ma_60 and prev['high'] >= prev['MA_60'] and close < prev_close and stoch < prev_stoch and stoch >= 55:
-        signal = "PE_BUY"
+        signal = "ATM PE BUY (Resistance)"
         sl = prev['high']
         risk = sl - entry_price
-        target = entry_price - risk  # 1:1 Target
+        target = entry_price - risk
 
     if signal:
         return {
@@ -113,39 +104,79 @@ def check_strategy_signals(df, symbol):
         }
     return None
 
-# --- Main Execution Loop for Paper Trading ---
+# --- Main Execution Loop ---
 def run_algo():
     logging.info("Initializing Angel One SmartAPI connection...")
     try:
         obj = SmartConnect(api_key=API_KEY)
-        data = obj.generateSession(CLIENT_ID, PASSWORD)
-        if not data['status']:
+        totp = pyotp.TOTP(TOTP_SECRET).now()
+        data = obj.generateSession(CLIENT_ID, PASSWORD, totp)
+        
+        if not data or 'status' not in data or not data['status']:
             logging.error("SmartAPI Login Failed: " + str(data))
+            send_telegram_alert("⚠️ *Angel One Login Failed!* कृपया क्रेडेन्शियल्स तपासा.")
             return
+            
         logging.info("SmartAPI Login Successful!")
+        send_telegram_alert("🚀 *Community Options Bot Activated Successfully!*\nCapital: ₹20,000 | Strategy: MA 60 + RSI Stoch (75/35) [5 Min Options Only]")
+        
     except Exception as e:
-        logging.error(f"Connection error: {e}")
+        logging.error("Connection error: " + str(e))
+        send_telegram_alert("⚠️ *Connection Error:* " + str(e))
         return
 
-    # तुमच्या वॉचलिस्ट मधील कमोडिटी सिम्बॉल (उदा. Crude Oil / Silver)
-    symbols = ["CRUDEOIL", "SILVERMIC"] 
+    symbols = [
+        {"name": "CRUDEOIL", "token": "260373"}, 
+        {"name": "SILVERMIC", "token": "260384"}
+    ]
     
     while True:
         try:
-            for symbol in symbols:
-                # येथे तुम्ही लाईव कॅण्डल डेटा फेच करू शकता (उदा. 5 मिनिटे टाइमफ्रेम)
-                # उदाहरणासाठी डमी डेटा फ्रेम स्ट्रक्चर वापरले आहे, प्रत्यक्ष API कॉल्स द्वारे OHLC डेटा टाकावा
+            for item in symbols:
+                symbol_name = item["name"]
+                token = item["token"]
                 
-                # TODO: Replace with actual SmartAPI historical data fetch call for 5 min timeframe
-                # historicalData = obj.getCandleData({...})
+                to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+                from_date = datetime.now().strftime("%Y-%m-%d 09:00")
                 
-                pass
+                historicParam = {
+                    "exchange": "MCX",
+                    "symboltoken": token,
+                    "interval": "FIVE_MINUTE",
+                    "fromdate": from_date,
+                    "todate": to_date
+                }
                 
-            time.sleep(300) # दर ५ मिनिटांनी तपासेल
+                response = obj.getCandleData(historicParam)
+                if response and 'data' in response and response['data']:
+                    candles = response['data']
+                    df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                    df['close'] = df['close'].astype(float)
+                    df['high'] = df['high'].astype(float)
+                    df['low'] = df['low'].astype(float)
+                    
+                    df = calculate_indicators(df)
+                    result = check_strategy_signals(df, symbol_name)
+                    
+                    if result:
+                        msg = (
+                            f"🔔 *COMMODITY OPTIONS ALERT* 🔔\n\n"
+                            f"📌 **Symbol:** {result['symbol']}\n"
+                            f"⚡ **Signal:** {result['signal']}\n"
+                            f"💰 **Entry Price:** {result['price']}\n"
+                            f"🛑 **Stop Loss (SL):** {result['sl']}\n"
+                            f"🎯 **Target (1:1):** {result['target']}\n"
+                            f"💵 **Capital:** ₹20,000 Paper Trade\n"
+                            f"⏰ **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        )
+                        send_telegram_alert(msg)
+                
+            time.sleep(300)
+            
         except Exception as e:
-            logging.error(f-`Error in execution loop: {e}`)
+            logging.error("Error in execution loop: " + str(e))
             time.sleep(60)
 
 if __name__ == "__main__":
-    send_telegram_alert("🚀 *Bhavin Trading Bot Initialized Successfully!*\nCapital: ₹20,000 | Strategy: MA 60 + RSI Stochastic Active.")
-    # run_algo() # अनकमेंट करा जेव्हा लाई लाइव्ह रन करायचे असेल
+    run_algo()
+    
