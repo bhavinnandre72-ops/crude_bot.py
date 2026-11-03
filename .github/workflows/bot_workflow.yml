@@ -2,7 +2,12 @@ name: Community Options Bot Workflow
 
 on:
   schedule:
-    - cron: '30 3-18 * * 1-5'
+    # सकाळी ९:३० वाजता (IST) - (UTC वेळेनुसार सकाळी ४:०० वाजता)
+    - cron: '0 4 * * 1-5'
+    
+    # दुपारी ४:०० वाजता (IST) - (UTC वेळेनुसार सकाळी १०:३० वाजता)
+    - cron: '30 10 * * 1-5'
+    
   workflow_dispatch:
 
 jobs:
