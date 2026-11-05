@@ -20,6 +20,9 @@ TOTP_SECRET = "D4YNATHBA3VFIW5C7YUQPJNVIE"
 TELEGRAM_BOT_TOKEN = "9026439091:AAFIKpcddjPnFfx-k-Wc8GUSSdHvgOd0w5k"
 TELEGRAM_CHAT_ID = "1486399523"
 
+# --- Paper Trade Active State ---
+active_paper_trade = None
+
 # --- Telegram Alert Function ---
 def send_telegram_alert(message):
     try:
@@ -104,9 +107,10 @@ def check_strategy_signals(df, symbol):
         }
     return None
 
-# --- Main Execution Loop ---
+# --- Main Execution Loop with Paper Trading ---
 def run_algo():
-    logging.info("Initializing Angel One SmartAPI connection...")
+    global active_paper_trade
+    logging.info("Initializing Angel One SmartAPI connection for Data Feeds...")
     try:
         obj = SmartConnect(api_key=API_KEY)
         totp = pyotp.TOTP(TOTP_SECRET).now()
@@ -118,7 +122,7 @@ def run_algo():
             return
             
         logging.info("SmartAPI Login Successful!")
-        send_telegram_alert("🚀 *Community Options Bot Activated Successfully!*\nCapital: ₹20,000 | Strategy: MA 60 + RSI Stoch (75/35) [5 Min Options Only]")
+        send_telegram_alert("🚀 *Community Options Paper Trading Bot Activated!*\nCapital: ₹20,000 (Virtual) | Strategy: MA 60 + RSI Stoch (75/35)")
         
     except Exception as e:
         logging.error("Connection error: " + str(e))
@@ -156,20 +160,41 @@ def run_algo():
                     df['low'] = df['low'].astype(float)
                     
                     df = calculate_indicators(df)
-                    result = check_strategy_signals(df, symbol_name)
                     
-                    if result:
-                        msg = (
-                            f"🔔 *COMMODITY OPTIONS ALERT* 🔔\n\n"
-                            f"📌 **Symbol:** {result['symbol']}\n"
-                            f"⚡ **Signal:** {result['signal']}\n"
-                            f"💰 **Entry Price:** {result['price']}\n"
-                            f"🛑 **Stop Loss (SL):** {result['sl']}\n"
-                            f"🎯 **Target (1:1):** {result['target']}\n"
-                            f"💵 **Capital:** ₹20,000 Paper Trade\n"
-                            f"⏰ **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                        )
-                        send_telegram_alert(msg)
+                    # Check active paper trade target/stoploss if any exists
+                    current_price = df.iloc[-1]['close']
+                    if active_paper_trade and active_paper_trade['symbol'] == symbol_name:
+                        if "CE" in active_paper_trade['signal']:
+                            if current_price >= active_paper_trade['target']:
+                                send_telegram_alert(f"🎯 *PAPER TRADE TARGET HIT!* \nSymbol: {symbol_name}\nExit Price: {current_price}")
+                                active_paper_trade = None
+                            elif current_price <= active_paper_trade['sl']:
+                                send_telegram_alert(f"🛑 *PAPER TRADE STOP LOSS HIT!* \nSymbol: {symbol_name}\nExit Price: {current_price}")
+                                active_paper_trade = None
+                        elif "PE" in active_paper_trade['signal']:
+                            if current_price <= active_paper_trade['target']:
+                                send_telegram_alert(f"🎯 *PAPER TRADE TARGET HIT!* \nSymbol: {symbol_name}\nExit Price: {current_price}")
+                                active_paper_trade = None
+                            elif current_price >= active_paper_trade['sl']:
+                                send_telegram_alert(f"🛑 *PAPER TRADE STOP LOSS HIT!* \nSymbol: {symbol_name}\nExit Price: {current_price}")
+                                active_paper_trade = None
+
+                    # Look for new signal only if no trade is currently active
+                    if not active_paper_trade:
+                        result = check_strategy_signals(df, symbol_name)
+                        if result:
+                            active_paper_trade = result
+                            msg = (
+                                f"📝 *VIRTUAL PAPER TRADE EXECUTED* 📝\n\n"
+                                f"📌 **Symbol:** {result['symbol']}\n"
+                                f"⚡ **Signal:** {result['signal']}\n"
+                                f"💰 **Entry Price:** {result['price']}\n"
+                                f"🛑 **Stop Loss (SL):** {result['sl']}\n"
+                                f"🎯 **Target (1:1):** {result['target']}\n"
+                                f"💵 **Virtual Capital:** ₹20,000\n"
+                                f"⏰ **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                            )
+                            send_telegram_alert(msg)
                 
             time.sleep(300)
             
